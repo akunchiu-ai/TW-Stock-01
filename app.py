@@ -65,7 +65,7 @@ def check_strategy(ticker, mode):
         ma200 = close.rolling(200).mean() # 年線
 
         # 處理成交量 (換算成張數)
-        vol_sheets_series = df[vol_col] / 1000
+        vol_sheets_series = df[vol_col]
         if isinstance(vol_sheets_series, pd.DataFrame): vol_sheets_series = vol_sheets_series.iloc[:, 0]
         
         # 成交量均線
@@ -239,3 +239,4 @@ if st.sidebar.button("🚀 開始掃描"):
         st.dataframe(df_res, use_container_width=True)
     else:
         st.warning("在此條件下未發現符合的股票。")
+
