@@ -6,7 +6,7 @@ import time
 
 # --- 頁面基本設定 ---
 st.set_page_config(page_title="台股超級選股王", layout="wide")
-st.title("📈 台股超級選股王 (嚴謹條件版)")
+st.title("📈 台股超級選股王")
 
 # --- 側邊欄設定 ---
 st.sidebar.header("⚙️ 參數設定")
@@ -163,8 +163,8 @@ def check_strategy(ticker, mode):
             ma120_recent = ma120.tail(4)
             if not all(ma120_recent.diff().dropna() > 0): return None
 
-            # [條件 3] 成交張數 > 500 (依照圖片設定)
-            if curr_vol_sheets <= 500: return None
+            # [條件 3] 成交張數 > 1000
+            if curr_vol_sheets <= 1000: return None
 
             # [條件 4] 5日最高價 > 60日最高價 * 0.9
             max_high_5 = high.tail(5).max()
@@ -308,3 +308,4 @@ if st.sidebar.button("🚀 開始掃描"):
         st.dataframe(df_res, use_container_width=True)
     else:
         st.warning(f"未發現符合的股票。這代表目前市場上沒有完全滿足該策略條件的個股。")
+
