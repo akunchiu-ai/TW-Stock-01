@@ -2,3 +2,4 @@ streamlit
 twstock
 yfinance
 pandas
+lxml
