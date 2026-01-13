@@ -5,156 +5,170 @@ import pandas as pd
 import time
 
 # --- 頁面基本設定 ---
-st.set_page_config(page_title="全台股篩選器", layout="wide")
-st.title("📈 台股強力篩選器 (上市+上櫃)")
-st.markdown("策略：**成交量 > 1000 張**、均線多頭排列、測底完成")
+st.set_page_config(page_title="台股超級選股王", layout="wide")
+st.title("📈 台股超級選股王 (全台股模式)")
 
-# --- 1. 核心篩選邏輯 ---
-def check_strategy(ticker):
+# --- 側邊欄設定 ---
+st.sidebar.header("⚙️ 參數設定")
+
+# 1. 選擇策略
+strategy_mode = st.sidebar.selectbox(
+    "💡 選擇選股策略",
+    ("原本策略 (多頭排列+測底)", "夢想起飛 (均線全多頭+量能增溫)")
+)
+
+# 2. 基礎過濾 (預設改為 1000 張)
+min_vol = st.sidebar.number_input("最低成交量過濾 (張)", value=1000, step=100)
+
+st.sidebar.info("提示：目前為全台股掃描模式 (約 1800 檔)，執行時間約需 15-20 分鐘，請耐心等候。")
+
+# --- 核心邏輯 ---
+def check_strategy(ticker, mode):
     try:
-        # 下載資料 (近 1 年)
-        df = yf.download(ticker, period="1y", progress=False)
-        if df.empty or len(df) < 200:
-            return None
+        # 下載資料 (抓 1.5 年以確保長天期均線資料足夠)
+        df = yf.download(ticker, period="18mo", progress=False)
+        
+        # 資料不足直接略過
+        if df.empty or len(df) < 300: return None
 
-        # 資料整理：處理 Series/DataFrame 格式差異
+        # --- 資料清洗 ---
         close = df['Close']
         if isinstance(close, pd.DataFrame): close = close.iloc[:, 0]
         
         vol_col = 'Volume' if 'Volume' in df.columns else 'volume'
         curr_vol = df[vol_col].iloc[-1]
-        
-        # 確保成交量是數值
         if isinstance(curr_vol, pd.Series): curr_vol = float(curr_vol.iloc[0])
         else: curr_vol = float(curr_vol)
-        
         curr_vol_sheets = curr_vol / 1000
 
-        # 🔥 [修改點] 條件 1: 成交量 > 1000 張
-        if curr_vol_sheets < 1000: return None
+        # [共同基礎過濾] 成交量門檻
+        if curr_vol_sheets < min_vol: return None
 
-        # 計算均線
+        # --- 計算指標 ---
+        curr_price = float(close.iloc[-1])
         ma5 = close.rolling(5).mean()
         ma20 = close.rolling(20).mean()
         ma60 = close.rolling(60).mean()
-        ma200 = close.rolling(200).mean()
-        curr_price = float(close.iloc[-1])
+        ma120 = close.rolling(120).mean() # 半年線
+        ma200 = close.rolling(200).mean() # 年線
 
-        # 條件 2: 均線多頭排列 (現價 > 5日 > 20日 > 60日)
-        cond_trend = (curr_price > ma5.iloc[-1]) and \
-                     (curr_price > ma20.iloc[-1]) and \
-                     (curr_price > ma60.iloc[-1])
-        if not cond_trend: return None
+        # 處理成交量均線 (Volume MA)
+        vol_series = df[vol_col]
+        if isinstance(vol_series, pd.DataFrame): vol_series = vol_series.iloc[:, 0]
+        vol_ma20 = vol_series.rolling(20).mean()
 
-        # 條件 3: 測底完成 (20日內最低價 < 20日均線最低點，簡單過濾剛起漲)
-        # 這裡保留原本邏輯，若不需要可註解掉
-        min_price_20 = close.tail(20).min()
-        min_ma20_20 = ma20.tail(20).min()
-        if min_price_20 >= min_ma20_20: return None
-
-        # 條件 4: 乖離率控制 (避免追高)
-        if curr_price >= (ma200.iloc[-1] * 1.4): return None
-
-        # 條件 5: 年線趨勢向上 (近10天)
-        ma200_recent = ma200.tail(11)
-        if not all(ma200_recent.diff().dropna() > 0): return None
-
-        # 取得名稱 (處理 twstock 可能的報錯)
+        # 取得名稱 (避免 twstock 報錯)
         stock_id = ticker.split('.')[0]
         try:
-            if stock_id in twstock.codes:
-                stock_name = twstock.codes[stock_id].name
-            else:
-                stock_name = stock_id
+            stock_name = twstock.codes[stock_id].name
         except:
             stock_name = stock_id
 
+        # ==========================================
+        # 🟢 策略 A: 原本策略 (多頭排列+測底)
+        # ==========================================
+        if mode == "原本策略 (多頭排列+測底)":
+            # 1. 均線排列 (5 > 20 > 60)
+            cond_trend = (curr_price > ma5.iloc[-1] > ma20.iloc[-1] > ma60.iloc[-1])
+            if not cond_trend: return None
+
+            # 2. 測底完成 (20日內最低價沒有破 20日均線的最低點)
+            min_price_20 = close.tail(20).min()
+            min_ma20_20 = ma20.tail(20).min()
+            if min_price_20 >= min_ma20_20: return None
+
+            # 3. 乖離率控制 (現價 < 年線 * 1.4)
+            if curr_price >= (ma200.iloc[-1] * 1.4): return None
+            
+            # 4. 年線上升
+            if not all(ma200.tail(11).diff().dropna() > 0): return None
+
+            note = "多頭測底"
+
+        # ==========================================
+        # 🚀 策略 B: 夢想起飛 (均線全多頭+量能增溫)
+        # ==========================================
+        elif mode == "夢想起飛 (均線全多頭+量能增溫)":
+            # 1. 收盤價 > 5, 20, 60, 120日均線
+            cond_price = (curr_price > ma5.iloc[-1]) and \
+                         (curr_price > ma20.iloc[-1]) and \
+                         (curr_price > ma60.iloc[-1]) and \
+                         (curr_price > ma120.iloc[-1])
+            if not cond_price: return None
+
+            # 2. (5, 200) 乖離率 < 30
+            bias_5_200 = ((ma5.iloc[-1] - ma200.iloc[-1]) / ma200.iloc[-1]) * 100
+            if bias_5_200 >= 30: return None
+
+            # 3. 連續 10 日上升 [200日收盤價平均] (年線持續上揚)
+            ma200_recent = ma200.tail(11) 
+            if not all(ma200_recent.diff().dropna() > 0): return None
+
+            # 4. 連續 10 日上升 [20日成交量平均] (月均量持續上揚)
+            vol_ma20_recent = vol_ma20.tail(11)
+            if not all(vol_ma20_recent.diff().dropna() > 0): return None
+
+            note = "夢想起飛"
+
+        # 回傳結果
         return {
             "代號": stock_id,
             "名稱": stock_name,
             "收盤價": round(curr_price, 2),
-            "成交量(張)": int(curr_vol_sheets),
-            "市場": "上市" if ".TW" in ticker else "上櫃"
+            "成交量": int(curr_vol_sheets),
+            "策略": note,
+            "乖離率(5-200)": round(((ma5.iloc[-1] - ma200.iloc[-1])/ma200.iloc[-1])*100, 1) if mode == "夢想起飛 (均線全多頭+量能增溫)" else "-"
         }
-    except Exception as e:
-        # print(e) # 除錯用
+
+    except Exception:
         return None
 
-# --- 2. 側邊欄控制 ---
-st.sidebar.header("⚙️ 篩選設定")
-
-# 🔥 [修改點] 增加模式選擇
-scan_mode = st.sidebar.radio(
-    "選擇掃描範圍：",
-    ("全台股掃描 (約 1800 檔)")
-)
-
-st.sidebar.info("💡 提示：全台股掃描因為資料量大，可能需要 15 分鐘以上，請耐心等候。若 Streamlit 雲端超時斷線，建議縮小範圍或分批執行。")
-
-# --- 3. 執行按鈕 ---
-if st.sidebar.button("🚀 開始執行"):
-    st.write("正在取得最新的股票清單...")
+# --- 執行按鈕 ---
+if st.sidebar.button("🚀 開始掃描"):
     
-    # 取得清單
+    # 取得清單 (強制全台股)
     try:
-        # 上市
         twse_codes = [f"{c}.TW" for c in twstock.codes.keys() if twstock.codes[c].type == '股票' and twstock.codes[c].market == '上市']
-        # 上櫃
         tpex_codes = [f"{c}.TWO" for c in twstock.codes.keys() if twstock.codes[c].type == '股票' and twstock.codes[c].market == '上櫃']
+        target_list = twse_codes + tpex_codes
         
-        all_stocks = twse_codes + tpex_codes
-        
-        # 根據模式決定掃描數量
-        if scan_mode == "快速測試 (前 100 檔)":
-            target_list = all_stocks[:100]
-            st.warning(f"目前為測試模式，僅掃描前 100 檔 (共 {len(all_stocks)} 檔)。")
-        else:
-            target_list = all_stocks
-            st.success(f"已啟動全台股模式，共 {len(target_list)} 檔，請稍候...")
+        st.success(f"✅ 已啟動全台股模式：準備掃描 {len(target_list)} 檔股票。")
             
-    except Exception as e:
-        st.error(f"無法取得股票清單: {e}")
+    except:
+        st.error("無法取得股票清單。")
         st.stop()
 
+    # 介面準備
+    st.subheader(f"📊 執行策略：{strategy_mode}")
     results = []
-    
-    # 進度條設定
-    progress_text = "掃描進行中...請勿關閉視窗"
-    my_bar = st.progress(0, text=progress_text)
-    status_box = st.empty()
-    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
     start_time = time.time()
-    total_stocks = len(target_list)
 
-    # 開始迴圈
+    # 迴圈掃描
     for i, stock in enumerate(target_list):
-        # 顯示即時進度 (每 5 檔更新一次介面，避免拖慢速度)
-        if i % 5 == 0:
-            pct = (i + 1) / total_stocks
-            my_bar.progress(pct, text=f"正在分析: {stock} ({i+1}/{total_stocks})")
+        if i % 10 == 0: # 稍微降低 UI 更新頻率以加快速度
+            status_text.text(f"⏳ 分析中: {stock} ({i+1}/{len(target_list)})")
+            progress_bar.progress((i + 1) / len(target_list))
         
-        res = check_strategy(stock)
+        res = check_strategy(stock, strategy_mode)
         
         if res:
             results.append(res)
-            # 即時顯示找到的股票 (使用 Toast 彈出訊息)
-            st.toast(f"🎯 發現: {res['代號']} {res['名稱']} (量:{res['成交量(張)']})")
+            st.toast(f"🎯 抓到了！{res['代號']} {res['名稱']}")
 
-    # 掃描結束
-    end_time = time.time()
-    duration = end_time - start_time
-    my_bar.progress(1.0, text="掃描完成！")
-    st.success(f"✅ 執行完畢！耗時 {int(duration // 60)} 分 {int(duration % 60)} 秒")
+    # 結束
+    duration = time.time() - start_time
+    progress_bar.progress(1.0)
+    status_text.success(f"掃描完成！耗時 {int(duration // 60)} 分 {int(duration % 60)} 秒")
 
-    # --- 4. 顯示結果表格 ---
+    # 顯示表格
     if results:
-        st.subheader(f"🏆 篩選結果：共 {len(results)} 檔")
-        df_results = pd.DataFrame(results)
-        
-        # 讓表格依照成交量排序 (由大到小)
-        df_results = df_results.sort_values(by="成交量(張)", ascending=False).reset_index(drop=True)
-        
-        st.dataframe(df_results, use_container_width=True)
+        df_res = pd.DataFrame(results)
+        # 排序：優先顯示成交量大的
+        df_res = df_res.sort_values(by="成交量", ascending=False).reset_index(drop=True)
+        st.dataframe(df_res, use_container_width=True)
     else:
-        st.warning("⚠️ 在掃描範圍內，沒有發現符合「所有條件」的股票。")
+        st.warning("在此條件下未發現符合的股票。")
+
 
