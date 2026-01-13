@@ -11,21 +11,22 @@ st.title("📈 台股超級選股王 (全台股模式)")
 # --- 側邊欄設定 ---
 st.sidebar.header("⚙️ 參數設定")
 
-# 1. 選擇策略 (新增第三個選項)
+# 1. 選擇策略 (新增第五個選項)
 strategy_mode = st.sidebar.selectbox(
     "💡 選擇選股策略",
     (
-        "量縮測底 (多頭排列+測底)", 
-        "夢想起飛 (均線全多頭+量能增溫)",
-        "多頭環境無賣壓 (均線多頭+半年線上升)"
+        "A.量縮測底 (多頭排列+測底)", 
+        "B.夢想起飛 (均線全多頭+量能增溫)",
+        "C.多頭環境無賣壓 (均線多頭+半年線上升)",
+        "D.糾結後往上 (均線密集糾結+準備突破)",
+        "E.神秘右上角 (強勢創高+均線多排)"
     )
 )
 
 # 2. 基礎過濾
-# 雖然圖片條件寫 >500，但這裡預設保留上次要求的 1000，你可以隨時手動改成 500
 min_vol = st.sidebar.number_input("最低成交量過濾 (張)", value=1000, step=100)
 
-st.sidebar.info("提示：若要取得今日 1:30 PM 收盤價，建議在下午 2:00 後執行。")
+st.sidebar.info("提示：策略運算較複雜，全台股掃描約需 15-20 分鐘，請耐心等候。")
 
 # --- 核心邏輯 ---
 def check_strategy(ticker, mode):
@@ -40,7 +41,7 @@ def check_strategy(ticker, mode):
         close = df['Close']
         if isinstance(close, pd.DataFrame): close = close.iloc[:, 0]
         
-        high = df['High'] # 新增 High 資料
+        high = df['High'] 
         if isinstance(high, pd.DataFrame): high = high.iloc[:, 0]
 
         vol_col = 'Volume' if 'Volume' in df.columns else 'volume'
@@ -49,7 +50,7 @@ def check_strategy(ticker, mode):
         else: curr_vol = float(curr_vol)
         curr_vol_sheets = curr_vol / 1000
 
-        # [共同基礎過濾] 成交量門檻
+        # [共同基礎過濾] 今日成交量門檻
         if curr_vol_sheets < min_vol: return None
 
         # --- 取得最新資料日期與價格 ---
@@ -63,10 +64,13 @@ def check_strategy(ticker, mode):
         ma120 = close.rolling(120).mean() # 半年線
         ma200 = close.rolling(200).mean() # 年線
 
-        # 處理成交量均線
-        vol_series = df[vol_col]
-        if isinstance(vol_series, pd.DataFrame): vol_series = vol_series.iloc[:, 0]
-        vol_ma20 = vol_series.rolling(20).mean()
+        # 處理成交量 (換算成張數)
+        vol_sheets_series = df[vol_col] / 1000
+        if isinstance(vol_sheets_series, pd.DataFrame): vol_sheets_series = vol_sheets_series.iloc[:, 0]
+        
+        # 成交量均線
+        vol_ma5 = vol_sheets_series.rolling(5).mean()
+        vol_ma20 = vol_sheets_series.rolling(20).mean()
 
         # 取得名稱
         stock_id = ticker.split('.')[0]
@@ -79,7 +83,7 @@ def check_strategy(ticker, mode):
         bias_val = "-"
 
         # ==========================================
-        # 🟢 策略 A: 量縮測底 (多頭排列+測底)
+        # 🟢 策略 A: 量縮測底
         # ==========================================
         if mode == "量縮測底 (多頭排列+測底)":
             cond_trend = (curr_price > ma5.iloc[-1] > ma20.iloc[-1] > ma60.iloc[-1])
@@ -115,32 +119,63 @@ def check_strategy(ticker, mode):
             note = "夢想起飛"
 
         # ==========================================
-        # 🛡️ 策略 C: 多頭環境無賣壓 
+        # 🛡️ 策略 C: 多頭環境無賣壓
         # ==========================================
         elif mode == "多頭環境無賣壓 (均線多頭+半年線上升)":
-            # 1. 收盤價 > 5日、20日、60日均線
             cond_ma = (curr_price > ma5.iloc[-1]) and \
                       (curr_price > ma20.iloc[-1]) and \
                       (curr_price > ma60.iloc[-1])
             if not cond_ma: return None
 
-            # 2. 連續 3 日上升 [120日收盤價平均] (半年線趨勢向上)
-            # 取最近 4 天資料來計算 3 次變化
             ma120_recent = ma120.tail(4)
             if not all(ma120_recent.diff().dropna() > 0): return None
 
-            # 3. 5日最高價 > 60日最高價 * 0.9
-            # (代表股價沒有離波段高點太遠)
             max_high_5 = high.tail(5).max()
             max_high_60 = high.tail(60).max()
-            
             if max_high_5 <= (max_high_60 * 0.9): return None
-
-            # 4. (週轉率 < 1) 
-            # 註：因雲端計算股本耗時過久，改以技術面條件為主，
-            # 此策略通常能篩選出穩定盤整後剛發動的股票。
-
             note = "多頭無賣壓"
+
+        # ==========================================
+        # 🌪️ 策略 D: 糾結後往上
+        # ==========================================
+        elif mode == "糾結後往上 (均線密集糾結+準備突破)":
+            max_high_200 = high.rolling(200).max().iloc[-1]
+            if ma5.iloc[-1] <= (max_high_200 * 0.9): return None
+
+            diff_20_60 = (abs(ma20 - ma60) / ma60) * 100
+            if not (diff_20_60.tail(10) < 10).all(): return None
+
+            diff_60_120 = (abs(ma60 - ma120) / ma120) * 100
+            if not (diff_60_120.tail(10) < 5).all(): return None
+
+            ma200_recent = ma200.tail(11)
+            if not all(ma200_recent.diff().dropna() > 0): return None
+            note = "均線糾結突破"
+
+        # ==========================================
+        # ✨ 策略 E: 神秘右上角 
+        # ==========================================
+        elif mode == "神秘右上角 (強勢創高+均線多排)":
+            # 1. 10日最大收盤價 > 200日最大收盤價 * 0.95
+            max_close_10 = close.rolling(10).max().iloc[-1]
+            max_close_200 = close.rolling(200).max().iloc[-1]
+            if max_close_10 <= (max_close_200 * 0.95): return None
+
+            # 2. 連續3日上升 [20日收盤價平均] (MA20趨勢向上)
+            ma20_diff = ma20.diff().tail(3)
+            if not all(ma20_diff > 0): return None
+
+            # 3. 5日成交量平均 > 1000 (張)
+            if vol_ma5.iloc[-1] <= 1000: return None
+
+            # 4. 連續5日上升 [200日收盤價平均] (年線趨勢向上)
+            ma200_diff = ma200.diff().tail(5)
+            if not all(ma200_diff > 0): return None
+
+            # 5. 收盤價 > 5日收盤價平均 (站上週線)
+            if curr_price <= ma5.iloc[-1]: return None
+
+            note = "神秘右上角"
 
         # 回傳結果
         return {
