@@ -180,8 +180,8 @@ def check_strategy(ticker, mode):
         elif mode == "糾結後往上 (嚴謹版)":
             
             # 使用通用成交量過濾
-            if curr_vol_sheets < min_vol_input: return None
-            
+            if curr_vol_sheets <= 1000: return None
+                       
             ma5 = close.rolling(5).mean()
             ma20 = close.rolling(20).mean()
             ma60 = close.rolling(60).mean()
@@ -308,4 +308,5 @@ if st.sidebar.button("🚀 開始掃描"):
         st.dataframe(df_res, use_container_width=True)
     else:
         st.warning(f"在此【嚴謹條件】下，未發現符合的股票。這代表目前市場上沒有完全滿足該策略條件的個股。")
+
 
