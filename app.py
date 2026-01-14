@@ -214,6 +214,7 @@ def check_strategy(ticker, mode):
         # ✨ 策略 5: 神秘右上角 (嚴謹版)
         # ==========================================
         elif mode == "神秘右上角 (嚴謹版)":
+            if curr_vol_sheets <= 1000: return None
             
             ma5 = close.rolling(5).mean()
             ma20 = close.rolling(20).mean()
@@ -308,5 +309,6 @@ if st.sidebar.button("🚀 開始掃描"):
         st.dataframe(df_res, use_container_width=True)
     else:
         st.warning(f"在此【嚴謹條件】下，未發現符合的股票。這代表目前市場上沒有完全滿足該策略條件的個股。")
+
 
 
