@@ -71,8 +71,8 @@ def check_strategy(ticker, mode):
         # ==========================================
         if mode == "量縮測底 (原本嚴謹條件)":
             
-            # [條件 1] 成交量 > 1000 張 (強制)
-            if curr_vol_sheets <= 1000: return None
+            # [條件 1] 成交量 > 2000 張 (強制)
+            if curr_vol_sheets <= 2000: return None
 
             ma5 = close.rolling(5).mean()
             ma20 = close.rolling(20).mean()
@@ -163,8 +163,8 @@ def check_strategy(ticker, mode):
             ma120_recent = ma120.tail(4)
             if not all(ma120_recent.diff().dropna() > 0): return None
 
-            # [條件 3] 成交張數 > 1000 (依照圖片設定)
-            if curr_vol_sheets <= 1000: return None
+            # [條件 3] 成交張數 > 2000 (依照圖片設定)
+            if curr_vol_sheets <= 2000: return None
 
             # [條件 4] 5日最高價 > 60日最高價 * 0.9
             max_high_5 = high.tail(5).max()
@@ -180,7 +180,7 @@ def check_strategy(ticker, mode):
         elif mode == "糾結後往上 (嚴謹版)":
             
             # 使用通用成交量過濾
-            if curr_vol_sheets <= 1000: return None
+            if curr_vol_sheets <= 2000: return None
                        
             ma5 = close.rolling(5).mean()
             ma20 = close.rolling(20).mean()
@@ -214,7 +214,7 @@ def check_strategy(ticker, mode):
         # ✨ 策略 5: 神秘右上角 (嚴謹版)
         # ==========================================
         elif mode == "神秘右上角 (嚴謹版)":
-            if curr_vol_sheets <= 1000: return None
+            if curr_vol_sheets <= 2000: return None
             
             ma5 = close.rolling(5).mean()
             ma20 = close.rolling(20).mean()
@@ -309,6 +309,7 @@ if st.sidebar.button("🚀 開始掃描"):
         st.dataframe(df_res, use_container_width=True)
     else:
         st.warning(f"在此【嚴謹條件】下，未發現符合的股票。這代表目前市場上沒有完全滿足該策略條件的個股。")
+
 
 
 
